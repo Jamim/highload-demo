@@ -31,7 +31,8 @@ class UDPProtocol:
 
     def start(self):
         loop = self.consumer.loop
-        coroutine = loop.create_datagram_endpoint(lambda: self, LISTEN_ADDRESS)
+        coroutine = loop.create_datagram_endpoint(lambda: self, LISTEN_ADDRESS,
+                                                  reuse_port=True)
         loop.run_until_complete(coroutine)
 
     def stop(self):
