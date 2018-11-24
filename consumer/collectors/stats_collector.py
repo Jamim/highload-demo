@@ -1,12 +1,18 @@
+import logging
 import warnings
 from collections import Counter, defaultdict
 from datetime import datetime
 from os import getenv
+from time import time
 
 from .base import BaseCollector
 
 warnings.filterwarnings('ignore', module='aioinflux.compat')
 from aioinflux import InfluxDBClient  # noqa: E402
+
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 INFLUXDB_HOST = getenv('INFLUXDB_HOST', '127.0.0.1')
@@ -18,19 +24,23 @@ class StatsCollector(BaseCollector):
 
     count_stats = None
     duration_stats = None
+    enabled = getenv('COLLECT_STATS') == '1'
 
-    def __init__(self, consumer):
+    def __init__(self, consumer, deserialize):
         super().__init__(consumer)
-        self.reset_stats()
-        self.influxdb_client = InfluxDBClient(host=INFLUXDB_HOST,
-                                              db=INFLUXDB_DB,
-                                              loop=self.loop)
+        if self.enabled:
+            self.deserialize = deserialize
+            self._reset_stats()
+            self.influxdb_client = InfluxDBClient(host=INFLUXDB_HOST,
+                                                  db=INFLUXDB_DB,
+                                                  loop=self.loop)
 
-    def reset_stats(self):
+    def _reset_stats(self):
         self.count_stats = defaultdict(Counter)
         self.duration_stats = defaultdict(Counter)
 
     def collect_data(self, data):
+        data = self.deserialize(data)
         country = data['country']
 
         count_stats = self.count_stats[country]
@@ -41,7 +51,7 @@ class StatsCollector(BaseCollector):
             count_stats[event_type] += 1
             duration_stats[event_type] += event['duration']
 
-    def get_stats(self):
+    def _get_stats(self):
         timestamp = datetime.utcnow()
         for country, country_count_stats in self.count_stats.items():
             country_duration_stats = self.duration_stats[country]
@@ -62,9 +72,12 @@ class StatsCollector(BaseCollector):
                 yield entry
 
     def flush(self):
-        for entry in self.get_stats():
+        start_time = time()
+        for entry in self._get_stats():
             self.loop.create_task(self.influxdb_client.write(entry))
-        self.reset_stats()
+        self._reset_stats()
+        duration = time() - start_time
+        logger.info(f'Stat flushing scheduled in {duration:.03f} seconds')
 
     def stop(self):
         self.loop.run_until_complete(self.influxdb_client.close())

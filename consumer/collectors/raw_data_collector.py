@@ -1,31 +1,52 @@
+import asyncio
 import os
-from uuid import uuid4
+from datetime import datetime
 
-import aiofiles
+from aiofiles.threadpool import wrap
 
 from .base import BaseCollector
 
 
-SAVE_RAW_DATA = os.getenv('SAVE_RAW_DATA') == '1'
 RAW_DATA_PATH = os.getenv('RAW_DATA_PATH', 'raw_data')
 
 
 class RawDataCollector(BaseCollector):
 
+    output_file = None
+    enabled = os.getenv('SAVE_RAW_DATA') == '1'
+
     def __init__(self, consumer):
         super().__init__(consumer)
-        if SAVE_RAW_DATA:
+        if self.enabled:
             self.path = os.path.join(RAW_DATA_PATH, consumer.consumer_id)
             os.mkdir(self.path)
+            self._reset_output()
+
+    def _reset_output(self):
+        previous_output_file = self.output_file
+        output_path = os.path.join(self.path, datetime.utcnow().isoformat())
+
+        # using synchronous open to avoid race condition
+        self.output_file = wrap(open(output_path, mode='bw'), loop=self.loop)
+
+        if previous_output_file:
+            self.loop.create_task(self._close_output(previous_output_file))
+
+    async def _close_output(self, previous_output_file):
+        pending_tasks = [task for task in asyncio.all_tasks(self.loop)
+                         if task._coro.cr_code.co_name == 'save_raw_data']
+        if pending_tasks:
+            await asyncio.wait(pending_tasks)
+        await previous_output_file.close()
 
     async def save_raw_data(self, data):
-        output_path = os.path.join(self.path, str(uuid4()))
-        async with aiofiles.open(output_path, mode='bw') as output_file:
-            await output_file.write(data)
+        await self.output_file.write(data)
 
     def collect_data(self, data):
-        if SAVE_RAW_DATA:
-            self.loop.create_task(self.save_raw_data(data))
+        self.loop.create_task(self.save_raw_data(data))
 
     def flush(self):
-        pass
+        self._reset_output()
+
+    def stop(self):
+        self.loop.run_until_complete(self._close_output(self.output_file))

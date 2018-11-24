@@ -32,7 +32,7 @@ class Timer:
     def __exit__(self, exc_type, exc_val, exc_tb):
         duration = time() - self.start_time
         print(f'{self.count} packets were {self.action} '
-              f'in {duration:.3f} seconds '
+              f'in {duration:.03f} seconds '
               f'at {self.count/duration:.02f} pps rate '
               f'{self.postfix}')
 
