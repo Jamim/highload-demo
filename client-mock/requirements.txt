@@ -1,4 +1,5 @@
 Faker
+tqdm
 
 msgpack
 simplejson
