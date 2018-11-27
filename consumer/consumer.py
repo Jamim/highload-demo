@@ -1,8 +1,11 @@
 import asyncio
 import logging
+import os
 from time import time
 from uuid import uuid4
+from functools import partial
 
+import msgpack
 import ujson
 
 from protocols import UDPProtocol
@@ -10,6 +13,7 @@ from collectors import RawDataCollector, StatsCollector
 
 
 STORE_INTERVAL = 10
+DATA_FORMAT = os.getenv('DATA_FORMAT', 'msgpack')
 
 
 class Consumer:
@@ -26,13 +30,20 @@ class Consumer:
         self.consumer_id = str(uuid4())
 
         self.raw_data_collector = RawDataCollector(self)
-        self.stats_collector = StatsCollector(self, ujson.loads)
+
+        if DATA_FORMAT == 'msgpack':
+            deserialize = partial(msgpack.loads, raw=False)
+        elif DATA_FORMAT == 'json':
+            deserialize = ujson.loads
+        else:
+            raise ValueError(f'{DATA_FORMAT} format is not supported')
+        self.stats_collector = StatsCollector(self, deserialize)
 
         self.consumed_count = 0
         self.last_flush_time = time()
 
-        self.logger.info('EventConsumer has been started: %s',
-                         self.consumer_id)
+        self.logger.info('EventConsumer has been started: %s, pid: %s',
+                         self.consumer_id, os.getpid())
 
     @staticmethod
     def configure_logging():

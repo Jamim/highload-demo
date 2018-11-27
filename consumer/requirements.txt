@@ -1,3 +1,4 @@
 aiofiles
 aioinflux
+msgpack
 ujson

@@ -1,8 +1,11 @@
 import importlib
 import json
 import os
+import sys
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from time import time
+
+import msgpack
 
 json_modules = [json]
 
@@ -13,6 +16,11 @@ for name in ('simplejson', 'rapidjson', 'ujson'):
         pass
     else:
         json_modules.append(module)
+
+FORMAT_MODULES = {
+    'json': json_modules,
+    'msgpack': (msgpack,)
+}
 
 
 PACKETS_PATH = os.getenv('PACKETS_PATH', 'test_data/packets')
@@ -37,21 +45,22 @@ class Timer:
               f'{self.postfix}')
 
 
-def main():
+def measure(packet_format):
     os.chdir(PACKETS_PATH)
 
     data = []
     with Timer('loaded') as timer:
         for filename in os.listdir('.'):
-            with open(filename, mode='rb') as input_file:
-                data.append(input_file.read())
+            if filename.endswith(packet_format):
+                with open(filename, mode='rb') as input_file:
+                    data.append(input_file.read())
         timer.count = len(data)
 
-    for module in json_modules:
-        measure_json_module_performance(module, data)
+    for module in FORMAT_MODULES[packet_format]:
+        measure_module_performance(module, data)
 
 
-def measure_json_module_performance(module, data):
+def measure_module_performance(module, data):
     loads = module.loads
     count = len(data)
 
@@ -72,6 +81,11 @@ def measure_json_module_performance(module, data):
     with Timer(f'parsed with {module.__name__}', '[4 processes]', count):
         with ProcessPoolExecutor(max_workers=4) as executor:
             executor.map(loads, data)
+
+
+def main():
+    packet_format = 'msgpack' if '--msgpack' in sys.argv else 'json'
+    measure(packet_format)
 
 
 if __name__ == '__main__':

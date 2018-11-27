@@ -1,5 +1,6 @@
 Faker
 
+msgpack
 simplejson
 python-rapidjson
 ujson
